@@ -50,6 +50,44 @@ module.exports = function (mixinOptions) {
 					};
 				},
 			},
+			context: {
+				visibility: "private",
+				tracing: false,
+				handler(ctx) {
+					const { req, connection } = ctx.params;
+					let context = {
+						dataLoaders: new Map(), // create an empty map to load DataLoader instances into
+					};
+
+					if (req) {
+						context = {
+							...context,
+							ctx: req.$ctx,
+							service: req.$service,
+							params: req.$params,
+						};
+					} else if (connection) {
+						context = {
+							...context,
+							ctx,
+							connectionCtx: connection.context.$ctx,
+							service: connection.context.$service,
+							params: connection.context.$params,
+						};
+					} else {
+						throw new Error("Unrecognized request type for context action");
+					}
+
+					return context;
+				},
+			},
+			actionOptions: {
+				visibility: "private",
+				tracing: false,
+				handler() {
+					return {};
+				},
+			},
 		},
 
 		events: {
@@ -101,7 +139,7 @@ module.exports = function (mixinOptions) {
 
 				if (service.version != null)
 					return (
-						(typeof service.version == "number"
+						(typeof service.version === "number"
 							? "v" + service.version
 							: service.version) +
 						"." +
@@ -161,10 +199,18 @@ module.exports = function (mixinOptions) {
 					params: staticParams = {},
 					rootParams = {},
 					fileUploadArg = null,
+					fieldName = "",
+					typeName = "",
 				} = def;
 				const rootKeys = Object.keys(rootParams);
 
 				return async (root, args, context) => {
+					// Record the span if possible
+					let operationSpan;
+					if (context.ctx)
+						operationSpan = context.ctx.startSpan(`GQL ${typeName} ${fieldName}`);
+					let result;
+
 					try {
 						if (useDataLoader) {
 							const dataLoaderMapKey = this.getDataLoaderMapKey(
@@ -211,33 +257,37 @@ module.exports = function (mixinOptions) {
 							}
 
 							if (dataLoaderKey == null) {
-								return null;
+								result = null;
+							} else {
+								result = Array.isArray(dataLoaderKey)
+									? await dataLoader.loadMany(dataLoaderKey)
+									: await dataLoader.load(dataLoaderKey);
 							}
-
-							return Array.isArray(dataLoaderKey)
-								? await dataLoader.loadMany(dataLoaderKey)
-								: await dataLoader.load(dataLoaderKey);
 						} else if (fileUploadArg != null && args[fileUploadArg] != null) {
 							const additionalArgs = _.omit(args, [fileUploadArg]);
 
 							if (Array.isArray(args[fileUploadArg])) {
-								return await Promise.all(
+								result = await Promise.all(
 									args[fileUploadArg].map(async uploadPromise => {
 										const { createReadStream, ...$fileInfo } =
 											await uploadPromise;
 										const stream = createReadStream();
 										return context.ctx.call(actionName, stream, {
-											meta: { $fileInfo, $args: additionalArgs },
-										});
+												meta: { $fileInfo, $args: additionalArgs },
+											},
+											await this.actions.actionOptions(root, args, context)
+										);
 									})
 								);
+							} else {
+								const { createReadStream, ...$fileInfo } = await args[fileUploadArg];
+								const stream = createReadStream();
+								result = await context.ctx.call(actionName, stream, {
+										meta: { $fileInfo, $args: additionalArgs },
+									},
+									await this.actions.actionOptions(root, args, context),
+								);
 							}
-
-							const { createReadStream, ...$fileInfo } = await args[fileUploadArg];
-							const stream = createReadStream();
-							return await context.ctx.call(actionName, stream, {
-								meta: { $fileInfo, $args: additionalArgs },
-							});
 						} else {
 							const params = {};
 							let hasRootKeyValue = false;
@@ -263,9 +313,17 @@ module.exports = function (mixinOptions) {
 								);
 							}
 
-							return await context.ctx.call(actionName, mergedParams);
+							result = await context.ctx.call(
+								actionName, 
+								mergedParams,
+								{},
+								await this.actions.actionOptions(root, args, context)
+							);
 						}
+						if (operationSpan) operationSpan.finish();
+						return result;
 					} catch (err) {
+						if (operationSpan) operationSpan.finish();
 						if (nullIfError) {
 							return null;
 						}
@@ -344,15 +402,27 @@ module.exports = function (mixinOptions) {
 					subscribe: filter
 						? withFilter(
 								() => this.pubsub.asyncIterator(tags),
-								async (payload, params, { ctx }) =>
-									payload !== undefined
-										? ctx.call(filter, { ...params, payload })
-										: false
+								async (payload, params) => {
+									return payload !== undefined
+										? this.createAsyncIteratorContext().call(filter, {
+												...params,
+												payload,
+										  })
+										: false;
+								}
 						  )
 						: () => this.pubsub.asyncIterator(tags),
-					resolve: (payload, params, { ctx }) =>
-						ctx.call(actionName, { ...params, payload }),
+					resolve: (payload, params) => {
+						return this.createAsyncIteratorContext().call(actionName, {
+							...params,
+							payload,
+						});
+					},
 				};
+			},
+
+			createAsyncIteratorContext() {
+				return this.broker.ContextFactory.create(this.broker, null, {}, {});
 			},
 
 			/**
@@ -470,7 +540,11 @@ module.exports = function (mixinOptions) {
 										const name = this.getFieldName(query);
 										queries.push(query);
 										resolver.Query[name] = this.createActionResolver(
-											action.name
+											action.name,
+											{
+												typeName: "query",
+												fieldName: name,
+											}
 										);
 									});
 								}
@@ -485,6 +559,8 @@ module.exports = function (mixinOptions) {
 											action.name,
 											{
 												fileUploadArg: def.fileUploadArg,
+												typeName: "mutation",
+												fieldName: name,
 											}
 										);
 									});
@@ -658,20 +734,7 @@ module.exports = function (mixinOptions) {
 					this.apolloServer = new ApolloServer({
 						schema,
 						..._.defaultsDeep({}, mixinOptions.serverOptions, {
-							context: ({ req, connection }) => ({
-								...(req
-									? {
-											ctx: req.$ctx,
-											service: req.$service,
-											params: req.$params,
-									  }
-									: {
-											ctx: connection.context.$ctx,
-											service: connection.context.$service,
-											params: connection.context.$params,
-									  }),
-								dataLoaders: new Map(), // create an empty map to load DataLoader instances into
-							}),
+							context: integrationContext => this.actions.context(integrationContext),
 							subscriptions: {
 								onConnect: (connectionParams, socket) =>
 									this.actions.ws({ connectionParams, socket }),
