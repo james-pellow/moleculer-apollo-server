@@ -731,6 +731,10 @@ module.exports = function (mixinOptions) {
 						"Generated GraphQL schema:\n\n" + GraphQL.printSchema(schema)
 					);
 
+					// STOP LISTENING TO NEW CONNECTIONS!!!
+					if (this.apolloServer)
+						this.apolloServer.subscriptionServer.wsServer._removeListeners();
+
 					this.apolloServer = new ApolloServer({
 						schema,
 						..._.defaultsDeep({}, mixinOptions.serverOptions, {
