@@ -212,6 +212,8 @@ module.exports = function (mixinOptions) {
 					let result;
 
 					try {
+						// const actionOptions = await this.actions.actionOptions(root, args, context);
+						// const actionOptions = { other: test };
 						if (useDataLoader) {
 							const dataLoaderMapKey = this.getDataLoaderMapKey(
 								actionName,
@@ -238,6 +240,7 @@ module.exports = function (mixinOptions) {
 									batchedParamKey,
 									staticParams,
 									args,
+									// actionOptions,
 									{ hashCacheKey: dataLoaderUseAllRootKeys } // must hash the cache key if not loading scalar
 								);
 								context.dataLoaders.set(dataLoaderMapKey, dataLoader);
@@ -363,6 +366,7 @@ module.exports = function (mixinOptions) {
 			 * @param {string} batchedParamKey - Parameter key to use for loaded values
 			 * @param {Object} staticParams - Static parameters to use in dataloader
 			 * @param {Object} args - Arguments passed to GraphQL child resolver
+			 * @param {Object} [actionOptions={}] - Optional options for action call
 			 * @param {Object} [options={}] - Optional arguments
 			 * @param {Boolean} [options.hashCacheKey=false] - Use a hash for the cacheKeyFn
 			 * @returns {DataLoader} Dataloader instance
@@ -373,11 +377,16 @@ module.exports = function (mixinOptions) {
 				batchedParamKey,
 				staticParams,
 				args,
+				// actionOptions = {},
 				{ hashCacheKey = false } = {}
 			) {
 				const batchLoadFn = keys => {
 					const rootParams = { [batchedParamKey]: keys };
-					return ctx.call(actionName, _.defaultsDeep({}, args, rootParams, staticParams));
+					return ctx.call(
+						actionName,
+						_.defaultsDeep({}, args, rootParams, staticParams)
+						// actionOptions
+					);
 				};
 
 				const dataLoaderOptions = this.dataLoaderOptions.get(actionName) || {};
@@ -404,19 +413,25 @@ module.exports = function (mixinOptions) {
 								() => this.pubsub.asyncIterator(tags),
 								async (payload, params, gctx) => {
 									return payload !== undefined
-										? this.createAsyncIteratorContext(gctx.ctx).call(filter, {
-												...params,
-												payload,
-										  })
+										? this.createAsyncIteratorContext(gctx.connectionCtx).call(
+												filter,
+												{
+													...params,
+													payload,
+												}
+										  )
 										: false;
 								}
 						  )
 						: () => this.pubsub.asyncIterator(tags),
 					resolve: (payload, params, gctx) => {
-						return this.createAsyncIteratorContext(gctx.ctx).call(actionName, {
-							...params,
-							payload,
-						});
+						return this.createAsyncIteratorContext(gctx.connectionCtx).call(
+							actionName,
+							{
+								...params,
+								payload,
+							}
+						);
 					},
 				};
 			},
