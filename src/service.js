@@ -744,7 +744,11 @@ module.exports = function (mixinOptions) {
 
 				try {
 					this.pubsub = this.createPubSub();
-					const services = this.broker.registry.getServiceList({ withActions: true });
+					// Sort to prevent schema re-generation from resulting in random ordered files
+					// and un-clean git commits
+					const services = this.broker.registry.getServiceList({ withActions: true })
+						.sort((a,b) => a.name.localeCompare(b.name));
+
 					const schema = this.generateGraphQLSchema(services);
 
 					this.logger.debug(
