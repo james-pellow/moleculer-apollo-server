@@ -441,7 +441,7 @@ module.exports = function (mixinOptions) {
 					this.broker,
 					null,
 					{},
-					{ meta: parentContext.meta }
+					{ meta: { ...parentContext.meta } }
 				);
 			},
 
