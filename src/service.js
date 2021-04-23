@@ -319,7 +319,6 @@ module.exports = function (mixinOptions) {
 							result = await context.ctx.call(
 								actionName, 
 								mergedParams,
-								{},
 								await this.actions.actionOptions(root, args, context)
 							);
 						}
