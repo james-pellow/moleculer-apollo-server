@@ -514,7 +514,6 @@ describe("Test Service", () => {
 					limit: 5,
 					a: 5,
 				},
-				{},
 				{}
 			);
 		});
