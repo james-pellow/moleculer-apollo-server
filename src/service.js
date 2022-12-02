@@ -772,6 +772,7 @@ module.exports = function (mixinOptions) {
 						this.apolloServer.subscriptionServer.wsServer._removeListeners();
 
 					this.apolloServer = new ApolloServer({
+						stopOnTerminationSignals: false,
 						schema,
 						..._.defaultsDeep({}, mixinOptions.serverOptions, {
 							context: integrationContext => this.actions.context(integrationContext),
