@@ -912,6 +912,7 @@ module.exports = function (mixinOptions) {
 		},
 
 		async stopped() {
+			this.logger.info("GraphQL server is stopping");
 			if (this.apolloServer) await this.apolloServer.stop();
 		},
 	};
