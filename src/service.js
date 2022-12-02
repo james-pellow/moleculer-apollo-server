@@ -275,7 +275,10 @@ module.exports = function (mixinOptions) {
 										const { createReadStream, ...$fileInfo } =
 											await uploadPromise;
 										const stream = createReadStream();
-										return context.ctx.call(actionName, stream, {
+										return context.ctx.call(
+											actionName,
+											stream,
+											{
 												meta: { $fileInfo, $args: additionalArgs },
 											},
 											await this.actions.actionOptions(root, args, context)
@@ -283,12 +286,17 @@ module.exports = function (mixinOptions) {
 									})
 								);
 							} else {
-								const { createReadStream, ...$fileInfo } = await args[fileUploadArg];
+								const { createReadStream, ...$fileInfo } = await args[
+									fileUploadArg
+								];
 								const stream = createReadStream();
-								result = await context.ctx.call(actionName, stream, {
+								result = await context.ctx.call(
+									actionName,
+									stream,
+									{
 										meta: { $fileInfo, $args: additionalArgs },
 									},
-									await this.actions.actionOptions(root, args, context),
+									await this.actions.actionOptions(root, args, context)
 								);
 							}
 						} else {
@@ -317,7 +325,7 @@ module.exports = function (mixinOptions) {
 							}
 
 							result = await context.ctx.call(
-								actionName, 
+								actionName,
 								mergedParams,
 								await this.actions.actionOptions(root, args, context)
 							);
@@ -745,8 +753,9 @@ module.exports = function (mixinOptions) {
 					this.pubsub = this.createPubSub();
 					// Sort to prevent schema re-generation from resulting in random ordered files
 					// and un-clean git commits
-					const services = this.broker.registry.getServiceList({ withActions: true })
-						.sort((a,b) => a.name.localeCompare(b.name));
+					const services = this.broker.registry
+						.getServiceList({ withActions: true })
+						.sort((a, b) => a.name.localeCompare(b.name));
 
 					const schema = this.generateGraphQLSchema(services);
 
@@ -755,7 +764,11 @@ module.exports = function (mixinOptions) {
 					);
 
 					// STOP LISTENING TO NEW CONNECTIONS!!!
-					if (this.apolloServer)
+					if (
+						this.apolloServer &&
+						typeof this.apolloServer.subscriptionServer.wsServer._removeListeners ===
+							"function"
+					)
 						this.apolloServer.subscriptionServer.wsServer._removeListeners();
 
 					this.apolloServer = new ApolloServer({
